@@ -178,14 +178,36 @@ async function image_browser_turnpage(tab_base_tag) {
     await image_browser_unlock()
 }
 
-function image_browser_gototab(tabname, tabsId = "tabs") {
-	Array.from(
-		gradioApp().querySelectorAll(`#${tabsId} > div:first-child button`)
-	).forEach((button) => {
-		if (button.textContent.trim() === tabname) {
-			button.click()
-		}
-	})
+async function image_browser_gototab(tabname) {
+    await image_browser_lock("image_browser_gototab")
+
+    tabNav = gradioApp().querySelector(".tab-nav")
+    const tabNavChildren = tabNav.children
+    let tabNavButtonNum
+    for (let i = 0; i < tabNavChildren.length; i++) {
+        if (tabNavChildren[i].tagName === "BUTTON" && tabNavChildren[i].textContent.trim() === tabname) {
+            tabNavButtonNum = i
+            break
+        }
+    }
+    let tabNavButton = tabNavChildren[tabNavButtonNum]
+    tabNavButton.click()
+
+    // Wait for click-action to complete
+    const startTime = Date.now()
+    // 60 seconds in milliseconds
+    const timeout = 60000
+    
+    await image_browser_delay(100)
+    while (!tabNavButton.classList.contains("selected")) {
+        tabNavButton = tabNavChildren[tabNavButtonNum]
+        if (Date.now() - startTime > timeout) {
+            throw new Error("image_browser_gototab: 60 seconds have passed")
+        }
+        await image_browser_delay(200)
+    }
+
+    await image_browser_unlock()
 }
 
 async function image_browser_get_image_for_ext(tab_base_tag, image_index) {
@@ -228,41 +250,102 @@ function image_browser_openoutpaint_send(tab_base_tag, image_index, image_browse
 		})
 }
 
-async function image_browser_controlnet_send(toTab, tab_base_tag, image_index, controlnetNum) {
+async function image_browser_controlnet_send(toTab, tab_base_tag, image_index, controlnetNum, controlnetType) {
+    // Logic originally based on github.com/fkunn1326/openpose-editor
     const dataURL = await image_browser_get_image_for_ext(tab_base_tag, image_index)
     const blob = await (await fetch(dataURL)).blob()
     const dt = new DataTransfer()
     dt.items.add(new File([blob], "ImageBrowser.png", { type: blob.type }))
-    const container = gradioApp().querySelector(
-        toTab === "txt2img" ? "#txt2img_script_container" : "#img2img_script_container"
-    )
-    const accordion = container.querySelector("#controlnet .transition")
-    if (accordion.classList.contains("rotate-90")) accordion.click()
+    const list = dt.files
 
-    const tab = container.querySelectorAll(
-        "#controlnet > div:nth-child(2) > .tabs > .tabitem, #controlnet > div:nth-child(2) > div:not(.tabs)"
-    )[controlnetNum]
-    if (tab.classList.contains("tabitem"))
-        tab.parentElement.firstElementChild.querySelector(`:nth-child(${Number(controlnetNum) + 1})`).click()
+    await image_browser_gototab(toTab)
+    const mode = gradioApp().getElementById(toTab + "_controlnet")
+    let accordion = mode.querySelector("#controlnet > .label-wrap > .icon")
+    if (accordion.style.transform.includes("rotate(90deg)")) {
+        accordion.click()
+        // Wait for click-action to complete
+        const startTime = Date.now()
+        // 60 seconds in milliseconds
+        const timeout = 60000
+    
+        await image_browser_delay(100)
+        while (accordion.style.transform.includes("rotate(90deg)")) {
+            accordion = mode.querySelector("#controlnet > .label-wrap > .icon")
+            if (Date.now() - startTime > timeout) {
+                throw new Error("image_browser_controlnet_send/accordion: 60 seconds have passed")
+            }
+            await image_browser_delay(200)
+        }
+    }    
 
-    const input = tab.querySelector("input[type='file']")
+    let inputContainerSelector
+    if (controlnetType == "single") {
+        inputContainerSelector = toTab + "_controlnet_ControlNet_input_image"
+    } else {
+        inputContainerSelector = toTab + "_controlnet_ControlNet-" + controlnetNum + "_input_image"
+        const tabs = gradioApp().getElementById(toTab + "_controlnet_tabs")
+        const tab_num = (parseInt(controlnetNum) + 1).toString()
+        tab_button = tabs.querySelector(".tab-nav button:nth-child(" + tab_num + ")")
+        tab_button.click()
+        // Wait for click-action to complete
+        const startTime = Date.now()
+        // 60 seconds in milliseconds
+        const timeout = 60000
+    
+        await image_browser_delay(100)
+        while (!tab_button.classList.contains("selected")) {
+            tab_button = tabs.querySelector(".tab-nav button:nth-child(" + tab_num + ")")
+            if (Date.now() - startTime > timeout) {
+                throw new Error("image_browser_controlnet_send/tabs: 60 seconds have passed")
+            }
+            await image_browser_delay(200)
+        }
+    }
+
+    let inputContainer = null
     try {
-        input.previousElementSibling.previousElementSibling.querySelector("button[aria-label='Clear']").click()
+        inputContainer = gradioApp().getElementById(inputContainerSelector)
     } catch (e) {}
+    const input = inputContainer.querySelector("input[type='file']")
+
+    let clear
+    try {
+        clear = inputContainer.querySelector("button[aria-label='Clear']")
+        if (clear) {
+            clear.click()
+        }
+    } catch (e) {
+        console.error(e)
+    }
+
+    try {
+        // Wait for click-action to complete
+        const startTime = Date.now()
+        // 60 seconds in milliseconds
+        const timeout = 60000
+        while (clear) {
+            clear = inputContainer.querySelector("button[aria-label='Clear']")
+            if (Date.now() - startTime > timeout) {
+                throw new Error("image_browser_controlnet_send/clear: 60 seconds have passed")
+            }
+            await image_browser_delay(200)
+        }
+    } catch (e) {
+        console.error(e)
+    }
 
     input.value = ""
-    input.files = dt.files
-    input.dispatchEvent(new Event("change", { bubbles: true, composed: true }))
-
-    image_browser_gototab(toTab)
+    input.files = list
+    const event = new Event("change", { "bubbles": true, "composed": true })
+    input.dispatchEvent(event)
 }
 
-function image_browser_controlnet_send_txt2img(tab_base_tag, image_index, controlnetNum) {
-    image_browser_controlnet_send("txt2img", tab_base_tag, image_index, controlnetNum)
+function image_browser_controlnet_send_txt2img(tab_base_tag, image_index, controlnetNum, controlnetType) {
+    image_browser_controlnet_send("txt2img", tab_base_tag, image_index, controlnetNum, controlnetType)
 }
   
-function image_browser_controlnet_send_img2img(tab_base_tag, image_index, controlnetNum) {
-    image_browser_controlnet_send("img2img", tab_base_tag, image_index, controlnetNum)
+function image_browser_controlnet_send_img2img(tab_base_tag, image_index, controlnetNum, controlnetType) {
+    image_browser_controlnet_send("img2img", tab_base_tag, image_index, controlnetNum, controlnetType)
 }
 
 function image_browser_class_add(tab_base_tag) {
