@@ -76,7 +76,7 @@ log_file = os.path.join(scripts.basedir(), "image_browser.log")
 db_version = wib_db.check()
 
 favorite_tab_name = "Favorites"
-default_tab_options = ["txt2img", "img2img", "txt2img-grids", "img2img-grids", "Extras", favorite_tab_name, "Others", "All", "Maintenance"]
+default_tab_options = ["txt2img", "img2img", "txt2img-grids", "img2img-grids", "Extras", favorite_tab_name, "working-group", "Others", "All", "Maintenance"]
 
 def check_image_browser_active_tabs():
     last_default_tab = wib_db.get_last_default_tab()
@@ -99,6 +99,7 @@ path_maps = {
     "txt2img-grids": opts.outdir_grids or opts.outdir_txt2img_grids,
     "img2img-grids": opts.outdir_grids or opts.outdir_img2img_grids,
     "Extras": opts.outdir_samples or opts.outdir_extras_samples,
+    "working-group": cmd_opts.shared_img_dir,
     favorite_tab_name: opts.outdir_save
 }
 
